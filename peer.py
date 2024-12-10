@@ -82,6 +82,10 @@ def receive_data_with_length(sock):
         if not chunk:
             break
         data += chunk
+    
+    # Additional safety check
+    if len(data) != data_length:  # Ensure the received data matches the expected length
+        raise ValueError(f"Incomplete data received. Expected {data_length} bytes, got {len(data)} bytes.")
 
     return json.loads(data.decode('utf-8'))
 
@@ -335,7 +339,7 @@ if __name__ == "__main__":
     # Start tombstone cleanup timer
     start_cleanup_timer(interval=30)  # Cleanup every 30 seconds
     
-    print("[INFO] Server started. Enter 'add', 'insert', 'delete', 'peers', or 'exit'")
+    print("[INFO] Server started. Enter 'join', 'edit', 'view', 'sync', 'finalize', or 'exit'")
     while True:
         command = input(">> ").strip()
         if command == "join":
