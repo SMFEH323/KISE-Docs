@@ -1,0 +1,18 @@
+[
+    ("H", (1, "user1")), 
+    ("e", (2, "user1")), 
+    ("y", (3, "user2")), 
+    (None, (4, "user1"))  # Tombstone for a deleted element
+]
+
+{
+    "type": "insert",
+    "position": 3,
+    "character": "A",
+    "uid": [1234567890, "user1"]
+}
+
+{
+    "type": "delete",
+    "uid": [1234567890, "user1"]
+}
