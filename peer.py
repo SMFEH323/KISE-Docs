@@ -61,34 +61,58 @@ def process_pending_operations():
             pending_operations.remove(operation)  # Remove after applying
 
 def send_data_with_length(sock, data):
-    # Encode the data as JSON
-    serialized_data = json.dumps(data).encode('utf-8')
-    data_length = len(serialized_data)
+    try:
+        # Serialize the data to JSON and encode it to bytes
+        serialized_data = json.dumps(data).encode('utf-8')  # Example: `[]` becomes `b"[]"`
+        data_length = len(serialized_data)  # Length of serialized data in bytes
 
-    # Send the length of the data as a fixed-size header (e.g., 4 bytes)
-    sock.sendall(data_length.to_bytes(4, byteorder='big'))
+        # Send the 4-byte header (data length)
+        sock.sendall(data_length.to_bytes(4, byteorder='big'))
 
-    # Send the actual data
-    sock.sendall(serialized_data)
+        # Send the serialized data
+        sock.sendall(serialized_data)
+
+        # Debugging output
+        print(f"[DEBUG] Sent header: {data_length.to_bytes(4, byteorder='big')}, length: {data_length}")
+        print(f"[DEBUG] Sent data: {serialized_data}")
+    except Exception as e:
+        print(f"[ERROR] Failed to send data: {e}")
+
 
 def receive_data_with_length(sock):
-    # Receive the length of the data (4 bytes)
-    data_length = int.from_bytes(sock.recv(4), byteorder='big')
+    try:
+        #Accumulate exactly 4 bytes for the header
+        header = b''
+        while len(header) < 4:
+            chunk = sock.recv(4 - len(header))  # Receive the remaining bytes needed for the header
+            if not chunk:  # Connection closed unexpectedly
+                raise ValueError("Connection closed while reading header.")
+            header += chunk
 
-    # Receive the data in chunks
-    data = b''
-    while len(data) < data_length:
-        chunk = sock.recv(4096)  # Read up to 4096 bytes at a time
-        if not chunk:
-            break
-        data += chunk
-    
-    # Additional safety check
-    if len(data) != data_length:  # Ensure the received data matches the expected length
-        raise ValueError(f"Incomplete data received. Expected {data_length} bytes, got {len(data)} bytes.")
+        data_length = int.from_bytes(header, byteorder='big')
 
-    return json.loads(data.decode('utf-8'))
+        if data_length == 0:
+            print("[DEBUG] Received zero-length data. Returning empty payload.")
+            return None
 
+        # Receive the data in chunks
+        data = b''
+        while len(data) < data_length:
+            chunk = sock.recv(4096)
+            if not chunk:
+                raise ValueError("Connection closed before receiving full data.")
+            data += chunk
+
+        if len(data) != data_length:
+            raise ValueError(f"Incomplete data received. Expected {data_length}, got {len(data)} bytes.")
+
+        return json.loads(data.decode('utf-8'))
+    except ValueError as e:
+        print(f"[ERROR] {e}")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] Failed to decode JSON: {e}")
+        return None
 
 # Function to handle incoming messages
 def handle_client(conn, addr):
@@ -97,8 +121,14 @@ def handle_client(conn, addr):
         while True:
             operation = receive_data_with_length(conn)  # Use the updated function
             if not operation:
+                print(f"[ERROR] Received invalid or no operation from {addr}. Closing connection.")
                 break
             print(f"[MESSAGE] Received from {addr}: {operation}")
+
+            # Handle empty document case
+            if operation.get("type") == "document_state" and not operation.get("document"):
+                print("[INFO] Received empty document state.")
+                continue
 
             # Handle request for document synchronization
             if operation["type"] == "request_document":
@@ -107,7 +137,7 @@ def handle_client(conn, addr):
                         "type": "document_state",
                         "document": document  # Send the entire document
                     }
-                conn.sendall(json.dumps(response).encode('utf-8'))
+                send_data_with_length(conn, response)
             elif operation["type"] == "hash_request":
                 response = {"type": "hash_response", "hash": hash_document()}
                 send_data_with_length(conn, response)
@@ -215,26 +245,6 @@ def delete_character(uid):
     process_pending_operations()  # Process operations
     broadcast_operation_with_ack(operation)  # Broadcast to peers
 
-def request_document(target_ip, target_port):
-    message = json.dumps({"type": "request_document"})
-    try:
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect((target_ip, target_port))
-        client_socket.sendall(message.encode('utf-8'))
-
-        # Receive the document
-        data = client_socket.recv(4096).decode('utf-8')  # Larger buffer for document
-        response = json.loads(data)
-        if response["type"] == "document_state":
-            global document
-            with document_lock:
-                document = response["document"]
-            print(f"[SYNC] Document synchronized: {document}")
-    except ConnectionRefusedError:
-        print(f"[ERROR] Unable to connect to {target_ip}:{target_port}")
-    finally:
-        client_socket.close()
-
 # Function to add a peer to the list
 def add_peer(ip, port):
     try:
@@ -251,6 +261,27 @@ def add_peer(ip, port):
         request_document(ip, port)
     except ConnectionRefusedError:
         print(f"[ERROR] Unable to connect to peer {ip}:{port}.")
+
+def request_document(target_ip, target_port):
+    try:
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((target_ip, target_port))
+        send_data_with_length(client_socket, {"type": "request_document"})
+
+        # Use `receive_data_with_length` to handle larger data
+        response = receive_data_with_length(client_socket)
+        if response and response["type"] == "document_state":
+            global document
+            with document_lock:
+                document = response["document"]
+            print(f"[SYNC] Document synchronized: {document}")
+        else:
+            print(f"[ERROR] Invalid or no response received from {target_ip}:{target_port}")
+    except ConnectionRefusedError:
+        print(f"[ERROR] Unable to connect to {target_ip}:{target_port}")
+    finally:
+        client_socket.close()
+
 
 def join_peer(ip, port, retries=3):
     attempt = 0
@@ -354,7 +385,14 @@ if __name__ == "__main__":
                 insert_character(position, character)
             elif action == "delete":
                 uid = input("Enter UID to delete (e.g., '(timestamp, peer_id)'): ")
-                delete_character(json.loads(uid))
+                try:
+                    uid_input = eval(uid)  # Use eval to convert the tuple-like string to a tuple
+                    if isinstance(uid, tuple) and len(uid) == 2:
+                        delete_character(uid)
+                    else:
+                        print("[ERROR] Invalid UID format. Must be a tuple of (timestamp, peer_id).")
+                except Exception as e:
+                    print(f"[ERROR] Failed to parse UID: {e}")
         elif command == "view":
             with document_lock:
                 print(f"[DOCUMENT] {document}")
