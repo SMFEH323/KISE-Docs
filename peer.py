@@ -32,12 +32,12 @@ def apply_operation(operation):
 # Function to process the pending operations buffer
 def process_pending_operations():
     global pending_operations
-    #with document_lock:  # Ensure thread-safe access
-    # Sort pending operations by UID (timestamp)
-    pending_operations.sort(key=lambda op: tuple(op["uid"]))
-    for operation in pending_operations[:]:  # Iterate over a copy
-        apply_operation(operation)  # Apply operation
-        pending_operations.remove(operation)  # Remove after applying
+    with document_lock:  # Ensure thread-safe access
+        # Sort pending operations by UID (timestamp)
+        pending_operations.sort(key=lambda op: tuple(op["uid"]))
+        for operation in pending_operations[:]:  # Iterate over a copy
+            apply_operation(operation)  # Apply operation
+            pending_operations.remove(operation)  # Remove after applying
 
 # Function to handle incoming messages
 def handle_client(conn, addr):
@@ -52,8 +52,8 @@ def handle_client(conn, addr):
             operation = json.loads(data)
             
             # Add to pending operations and process
-            #with document_lock:
-            pending_operations.append(operation)
+            with document_lock:
+                pending_operations.append(operation)
             process_pending_operations()
     except ConnectionResetError:
         print(f"[INFO] Connection with {addr} lost")
@@ -126,9 +126,9 @@ def add_peer(ip, port):
 # Function to clean up tombstones in the document
 def clean_up_tombstones():
     global document
-    #with document_lock:
-    # Filter out elements marked as tombstones
-    document = [entry for entry in document if entry[0] is not None]
+    with document_lock:
+        # Filter out elements marked as tombstones
+        document = [entry for entry in document if entry[0] is not None]
     print(f"[CLEANUP] Document after cleanup: {document}")
 
 # Timer to periodically clean up tombstones
