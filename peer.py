@@ -12,10 +12,14 @@ document = []  # List of (character, uid) tuples
 peers = []     # List of connected peers (IP, PORT)
 document_lock = threading.Lock()  # Lock to ensure thread-safe access to the document
 pending_operations = []  # Buffer for out-of-order operations
+operation_history = []  # List of all operations
 
 # Function to apply an operation to the document
 def apply_operation(operation):
     global document
+    if operation not in operation_history:
+            operation_history.append(operation)  # Log the operation
+
     if operation["type"] == "insert":
         position = operation["position"]
         char = operation["character"]
@@ -36,6 +40,31 @@ def apply_operation(operation):
                 document[i] = (None, uid)  # Mark as tombstone
                 break
     print(f"[DOCUMENT] {document}")
+
+def request_operations(target_ip, target_port, last_received_uid=None):
+    message = json.dumps({
+        "type": "request_operations",
+        "last_uid": last_received_uid  # UID of the last operation this peer received
+    })
+    try:
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((target_ip, target_port))
+        client_socket.sendall(message.encode('utf-8'))
+
+        # Receive the operation history
+        data = client_socket.recv(4096).decode('utf-8')
+        response = json.loads(data)
+        if response["type"] == "operation_history":
+            global pending_operations
+            with document_lock:
+                for op in response["operations"]:
+                    if op not in operation_history:
+                        pending_operations.append(op)
+            process_pending_operations()
+    except ConnectionRefusedError:
+        print(f"[ERROR] Unable to connect to {target_ip}:{target_port}")
+    finally:
+        client_socket.close()
 
 # Function to process the pending operations buffer
 def process_pending_operations():
@@ -86,6 +115,21 @@ def handle_client(conn, addr):
                     response = {
                         "type": "document_state",
                         "document": document  # Send the entire document
+                    }
+                conn.sendall(json.dumps(response).encode('utf-8'))
+            elif operation["type"] == "request_operations":
+                last_uid = tuple(operation["last_uid"]) if operation.get("last_uid") else None
+                with document_lock:
+                    # Send only operations after the last UID
+                    if last_uid:
+                        operations_to_send = [
+                            op for op in operation_history if tuple(op["uid"]) > last_uid
+                        ]
+                    else:
+                        operations_to_send = operation_history
+                    response = {
+                        "type": "operation_history",
+                        "operations": operations_to_send
                     }
                 conn.sendall(json.dumps(response).encode('utf-8'))
             else:
@@ -205,6 +249,11 @@ if __name__ == "__main__":
             # Delete a character by UID
             uid = input("Enter UID to delete (e.g., '(timestamp, peer_id)'): ")
             delete_character(eval(uid))  # Convert string input to tuple
+        elif command == "reconnect":
+            target_ip = input("Enter the IP of the peer to sync with: ")
+            target_port = int(input("Enter the port of the peer to sync with: "))
+            last_uid = operation_history[-1]["uid"] if operation_history else None
+            request_operations(target_ip, target_port, last_uid)
         elif command == "sync":
             target_ip = input("Enter the IP of the peer to sync with: ")
             target_port = int(input("Enter the port of the peer to sync with: "))
