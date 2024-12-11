@@ -2,6 +2,7 @@ import socket
 import threading
 import json
 import time
+import random
 
 # Peer configuration
 HOST = input("Enter the host IP address: ")  # Localhost
@@ -162,12 +163,17 @@ def start_server():
         thread.start()
 
 # Function to send an operation to all peers
-def broadcast_operation(operation, peers):
+def broadcast_operation(operation, peers, loss_probability=0.3):
     global is_synced
     message = json.dumps(operation)
     for ip, port in peers:
         client_socket = None
         try:
+            # Randomly drop messages to simulate loss
+            if random.random() < loss_probability:
+                print(f"[LOSS] Message to {ip}:{port} was lost")
+                continue
+            
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client_socket.connect((ip, port))
             client_socket.sendall(message.encode('utf-8'))

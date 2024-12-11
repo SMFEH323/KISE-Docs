@@ -2,6 +2,7 @@ import socket
 import threading
 import json
 import time
+import random
 
 # Peer configuration
 HOST = input("Enter the host IP address: ")  # Localhost
@@ -168,6 +169,8 @@ def broadcast_operation(operation, peers):
     for ip, port in peers:
         client_socket = None
         try:
+            delay = random.uniform(0.5, 2.0)  # Random delay between 0.5 and 2 seconds
+            time.sleep(delay)  # Simulate delay
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client_socket.connect((ip, port))
             client_socket.sendall(message.encode('utf-8'))
