@@ -293,7 +293,7 @@ def merge_documents(documents):
                 seen_uids.add(uid)
 
     # Sort the merged document by UID (to ensure correct order)
-    merged_document.sort(key=lambda x: x[1])  # Sort by UID
+    #merged_document.sort(key=lambda x: x[1])  # Sort by UID
     return merged_document
 
 
@@ -347,7 +347,7 @@ if __name__ == "__main__":
     
     print("[INFO] Server started. Enter 'add', 'edit', 'view', 'save', 'sync', 'reconnect', 'peers', or 'exit'")
     while True:
-        command = input(">> ").strip()
+        command = input(">> ").strip().lower
         if command == "add":
             # Add a peer
             target_ip = input("Enter peer IP: ")
