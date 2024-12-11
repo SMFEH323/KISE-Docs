@@ -341,7 +341,7 @@ if __name__ == "__main__":
     
     print("[INFO] Server started. Enter 'add', 'edit', 'view', 'save', 'sync', 'reconnect', 'peers', or 'exit'")
     while True:
-        command = input(">> ").strip().lower
+        command = input(">> ").strip().lower()
         if command == "add":
             # Add a peer
             target_ip = input("Enter peer IP: ")
