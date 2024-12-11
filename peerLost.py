@@ -187,14 +187,14 @@ def broadcast_operation(operation, peers, loss_probability=0.3):
 # Auto-sync before edits
 def auto_sync_if_needed():
     global is_synced
-    if peers:
-        print("[SYNC] Auto-syncing")
-        sync_with_multiple_peers()
-    elif is_synced:
-        print("[ERROR] No peers available for sync. Please add a peer.")
-        return False
-    is_synced = True
-    return True
+    if not peers:
+        print("[INFO] No peers available. Editing offline.")
+        is_synced = True  # Allow offline edits
+        return True
+
+    print("[SYNC] Auto-syncing with peers...")
+    is_synced = sync_with_multiple_peers()
+    return is_synced
 
 # Function to insert a character into the document
 def insert_character(position, character):
@@ -237,9 +237,11 @@ def sync_with_multiple_peers():
             document = merged_document
             is_synced = True
         print(f"[SYNC] Document synchronized from multiple peers: {document}")
+        return True
     else:
         is_synced = False
         print("[ERROR] No peers responded. Unable to sync.")
+        return False
 
 
 def request_documents_from_peers():
@@ -320,6 +322,8 @@ def view_document():
     print(f"[DOCUMENT] {viewable}")
 
 def save_document():
+    if not peers:
+        print("[WARNING] Saving offline. Document is not synchronized with any peers.")
     file_name = input("Enter the file name to save the document (e.g., 'document.txt'): ").strip()
     with document_lock:
         viewable = "".join(char for char, uid in document if char is not None)
